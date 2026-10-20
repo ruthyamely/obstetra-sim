@@ -1,0 +1,128 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Obstetra Sim: Misión Materna</title>
+<style>
+:root{--bg:#0f1b2d;--pn:rgba(15,27,45,.86);--ac:#2ec4b6;--tx:#eef4f8;--wr:#ff6b6b;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:14px system-ui,sans-serif;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#hud{position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;display:flex;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--pn);font-weight:600;flex-wrap:wrap}
+#bot{position:fixed;left:0;right:0;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:var(--pn);line-height:1.35}
+#bot b{color:var(--ac)}#msg{margin-top:4px;min-height:2.7em}
+#joy{position:fixed;left:18px;bottom:calc(120px + env(safe-area-inset-bottom,0px));width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.3);touch-action:none}
+#knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:var(--ac)}
+#acts{position:fixed;right:10px;bottom:calc(120px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px;max-width:210px}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:9px 12px;background:var(--ac);color:#06222a;font-weight:700;text-align:left}
+button.done{background:#3b4b60;color:#9fb3c8}button.end{background:var(--wr);color:#2a0606}button.sec{background:#2c3e57;color:var(--tx)}
+#near{position:fixed;right:10px;bottom:calc(120px + env(safe-area-inset-bottom,0px));transform:translateY(0)}
+#ov{position:fixed;inset:0;background:rgba(8,14,26,.9);display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto}
+#ov .card{max-width:520px;width:100%;background:#17263c;border-radius:16px;padding:20px}
+#ov h1,#ov h2{margin:0 0 8px}#ov p{margin:6px 0}#ov .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px solid #2c3e57}td:last-child{text-align:right;font-weight:700}
+.sw{width:34px;height:34px;padding:0;border-radius:50%;border:3px solid transparent}.sw.on{border-color:#fff}
+.hide{display:none!important}kbd{background:#2c3e57;border:1px solid #4a607c;border-radius:5px;padding:1px 6px;font:inherit;font-weight:700}#ov h3{margin:12px 0 4px;color:var(--ac)}#ov ul{margin:4px 0;padding-left:20px}
+@media(max-width:600px){#acts{max-width:170px}button{padding:7px 9px;font-size:13px}}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="hl">NIVEL 1</span><span id="ht">Tiempo 0:00</span><span id="hs">Puntos 0</span><span id="hc">Monedas 0</span></div>
+<div id="joy" class="hide"><div id="knob"></div></div>
+<div id="acts"></div>
+<div id="bot"><div><b>OBJETIVO:</b> <span id="obj"></span></div><div><b>CONSTANTES:</b> <span id="vit"></span></div><div id="msg"></div></div>
+<div id="ov"><div class="card" id="oc"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const COL=[0x2ec4b6,0x4a7bd0,0xe879a8,0x8e6fd8];let col=0,owned=new Set([0]),coins=0,best=[0,0,0];
+const INFO=['fcf','pa','dil','parto','emo'];
+const A={fcf:['p','Evaluar FCF'],pa:['p','Tomar presión arterial'],dil:['p','Tacto / dilatación'],emo:['p','Acompañamiento emocional'],lat:['p','Decúbito lateral izq.'],o2:['p','Oxigenoterapia'],skin:['p','Piel con piel'],atender:['p','Atender parto (obstetra)'],parto:['m','Ver partograma OMS'],oxi:['n','Oxitocina 10 UI (MAMPA)'],via:['n','Canalizar vía'],mgso4:['n','Sulfato de magnesio'],codigo:['d','Código Rojo/Azul'],refer:['d','Llamar / Referir a médico']};
+const TN={p:'Gestante',m:'Monitor / Partograma',n:'Enfermera',d:'Médico ginecólogo'};
+const M={fcf:['FCF 140 lpm: normal (110–160).','FCF 90 lpm y líquido meconial espeso: sufrimiento fetal agudo.','FCF 144 lpm: normal.'],
+pa:['PA 110/70 mmHg: normal.','PA 115/75 mmHg: normal.','PA 170/115 mmHg, proteinuria +++, cefalea y visión borrosa: preeclampsia severa.'],
+dil:['6 cm, cefálico, membranas rotas, líquido claro.','8 cm, cefálico, líquido meconial espeso.','4 cm, cefálico, sin sangrado.'],
+parto:['Partograma: avance a la izquierda de la línea de alerta. Sin distocia.','Partograma: avance normal, pero la FCF está alterada.','Partograma: sin distocia; el riesgo es materno.'],
+emo:'Acompañas, explicas cada paso y cuidas la privacidad. La gestante se tranquiliza.',
+lat:'Decúbito lateral izquierdo: mejora la perfusión uteroplacentaria.',o2:'Oxígeno 8–10 L/min con mascarilla.',
+skin:'Contacto piel con piel inmediato y apego precoz. Recién nacido estable.',oxi:'Oxitocina 10 UI IM: alumbramiento dirigido (MAMPA).',
+via:'Vía periférica canalizada.',mgso4:'Sulfato de magnesio 4 g EV de carga. Vigila reflejos, FR y diuresis.',codigo:'Código activado: equipo de emergencia en camino.'};
+const V=[{fcf:'140 lpm',pa:'110/70',dil:'6 cm'},{fcf:'90 lpm (alterada)',pa:'115/75',dil:'8 cm'},{fcf:'144 lpm',pa:'170/115 (alta)',dil:'4 cm'}];
+const L=[{n:'Parto eutócico',obj:'Evalúa FCF y presión, revisa el partograma y decide si el parto es de bajo riesgo.',req:['fcf','pa','parto','emo','oxi','skin'],as:['fcf','pa'],dec:'atender',t:180,edu:'Parto de bajo riesgo: la obstetra atiende con partograma, acompañamiento, MAMPA y piel con piel. Referir sin signos de alarma no era necesario.'},
+{n:'Sufrimiento fetal agudo',obj:'La FCF puede estar alterada. Actúa y decide a quién avisar.',req:['fcf','lat','o2','emo'],as:['fcf'],dec:'refer',t:90,edu:'FCF <110 o >160 lpm o meconio espeso: decúbito lateral izquierdo, oxígeno y referir de inmediato al médico para cesárea de emergencia.'},
+{n:'Preeclampsia severa',obj:'La gestante refiere cefalea y visión borrosa. Evalúa y maneja la crisis.',req:['pa','via','mgso4','emo','codigo'],as:['pa'],dec:'refer',t:120,edu:'PA ≥160/110 con síntomas: canalizar, sulfato de magnesio, activar Código Rojo/Azul y derivar al equipo médico especialista.'}];
+let lvl=0,run=false,done,rev,pen,t0,tNow=0,tgt=null;
+// ---------- 3D
+const R=new THREE.WebGLRenderer({canvas:$('c'),antialias:true});const S=new THREE.Scene();S.background=new THREE.Color(0xcfe9ee);
+const cam=new THREE.PerspectiveCamera(60,1,.1,100);
+S.add(new THREE.HemisphereLight(0xffffff,0x7fa3a8,1.05));const dl=new THREE.DirectionalLight(0xffffff,.5);dl.position.set(4,9,5);S.add(dl);
+const mat=c=>new THREE.MeshLambertMaterial({color:c});
+function mesh(g,c,x,y,z,p=S){const m=new THREE.Mesh(g,mat(c));m.position.set(x,y,z);p.add(m);return m}
+const bx=(w,h,d,c,x,y,z,p)=>mesh(new THREE.BoxGeometry(w,h,d),c,x,y,z,p);
+function person(c,x,z,ry,cap,hc,sk){hc=hc||0x3b2a20;sk=sk||0xe2b48f;const g=new THREE.Group(),cl=[],sm=[];const C=m=>{cl.push(m.material);return m},K=m=>{sm.push(m.material);return m};
+C(mesh(new THREE.CylinderGeometry(.27,.3,.75,14),c,0,1.2,0,g));
+for(const s of[-1,1]){mesh(new THREE.CylinderGeometry(.1,.09,.82,10),0x2f4358,s*.12,.42,0,g);bx(.15,.08,.28,0x222222,s*.12,.04,.06,g);const a=C(mesh(new THREE.CylinderGeometry(.075,.065,.62,10),c,s*.37,1.18,0,g));a.rotation.z=s*.1;K(mesh(new THREE.SphereGeometry(.06,10,8),sk,s*.42,.84,0,g));mesh(new THREE.SphereGeometry(.022,8,6),0x111111,s*.07,1.83,.19,g)}
+K(mesh(new THREE.CylinderGeometry(.07,.08,.14,8),sk,0,1.62,0,g));const h=K(mesh(new THREE.SphereGeometry(.2,18,14),sk,0,1.8,0,g));h.scale.y=1.12;
+mesh(new THREE.SphereGeometry(.212,16,12,0,6.3,0,1.85),hc,0,1.82,-.045,g);K(bx(.03,.05,.04,sk,0,1.78,.2,g));bx(.07,.012,.01,0xb5524f,0,1.72,.19,g);
+if(cap)C(mesh(new THREE.SphereGeometry(.225,14,8,0,6.3,0,1.25),c,0,1.84,-.02,g));
+g.userData={cl,sk:sm,hd:h};g.position.set(x,0,z);g.rotation.y=ry||0;S.add(g);return g}
+bx(14,.1,12,0xe9f3f4,0,0,0);bx(14,3.5,.2,0xbfe0e0,0,1.75,-6);bx(.2,3.5,12,0xbfe0e0,-7,1.75,0);bx(.2,3.5,12,0xbfe0e0,7,1.75,0);
+bx(1.3,.5,2.6,0x8aa0b4,0,.4,-2.4);bx(1.2,.2,2.4,0xffffff,0,.75,-2.4);
+bx(.7,.14,.4,0xffffff,0,.92,-3.45);const pat=person(0x9ec9e8,0,-1.4,0,0,0x4a2e1c);pat.rotation.x=-Math.PI/2;pat.position.y=1;
+const belly=mesh(new THREE.SphereGeometry(.34,20,16),0x9ec9e8,0,.95,.2,pat);bx(.85,.16,.7,0x7fb0c9,0,1.15,-1.75);
+bx(.1,1.1,.1,0x555,3.5,.55,1);const scr=bx(1,.7,.1,0x0b2b2e,3.5,1.5,1);bx(.9,.05,.02,0x34e0a1,3.5,1.5,1.06);
+bx(1.4,.9,.8,0xb0c4d0,-4,.45,-4);const nurse=person(0x6aa7e8,-4,-2.8,Math.PI/2,1,0x7a4b2a);const doc=person(0xf5f5f5,4.5,-3,-Math.PI/2,0,0x1a1a1a,0xb98363);
+const you=person(COL[0],0,3.5,0,1,0x5a3a22);
+const T={p:{x:0,z:-1.1},m:{x:3.5,z:1},n:{x:-4,z:-2.8},d:{x:4.5,z:-3}};const mk={};
+for(const k in T){mk[k]=mesh(new THREE.OctahedronGeometry(.18),0xffd23f,T[k].x,2.3,T[k].z)}
+let yaw=0,px=0,pz=3.5,ix=0,iy=0;const keys={};
+function size(){R.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',size);size();
+// ---------- controls
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=1;const n=+e.key;if(n>0&&n<10){const b=$('acts').children[n-1];if(b)b.click()}});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+let dr=null;$('c').addEventListener('pointerdown',e=>{dr=e.clientX});addEventListener('pointerup',()=>dr=null);
+addEventListener('pointermove',e=>{if(dr!=null&&!jid){yaw-=(e.clientX-dr)*.006;dr=e.clientX}});
+let jid=null;const J=$('joy');if(matchMedia('(pointer:coarse)').matches||'ontouchstart' in window)J.classList.remove('hide');
+function jmove(e){const r=J.getBoundingClientRect(),cx=r.left+55,cy=r.top+55;let dx=e.clientX-cx,dy=e.clientY-cy;const d=Math.hypot(dx,dy),m=45;if(d>m){dx*=m/d;dy*=m/d}$('knob').style.transform=`translate(${dx}px,${dy}px)`;ix=dx/m;iy=-dy/m}
+J.addEventListener('pointerdown',e=>{jid=e.pointerId;J.setPointerCapture(jid);jmove(e);e.stopPropagation()});
+J.addEventListener('pointermove',e=>{if(e.pointerId==jid)jmove(e)});
+const jend=e=>{if(e.pointerId==jid){jid=null;ix=iy=0;$('knob').style.transform=''}};J.addEventListener('pointerup',jend);J.addEventListener('pointercancel',jend);
+// ---------- game
+function ui(){$('hl').textContent='NIVEL '+(lvl+1);$('hc').textContent='Monedas '+coins;$('hs').textContent='Puntos '+calc().tot;
+const t=Math.floor(tNow);$('ht').textContent='Tiempo '+Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+$('vit').textContent=run?['fcf','pa','dil'].map(k=>({fcf:'FCF',pa:'PA',dil:'Dilat.'}[k])+': '+(rev[k]||'?')).join(' | '):''}
+function acts(){const box=$('acts');box.innerHTML='';if(!run||!tgt)return;let i=1;
+for(const id in A){if(A[id][0]!=tgt)continue;const b=document.createElement('button');const end=id=='atender'||id=='refer';
+b.className=(end?'end':'')+(done.has(id)&&!end?' done':'');b.textContent=i++ +'. '+A[id][1]+(done.has(id)&&!end?' ✓':'');b.onclick=()=>act(id);box.appendChild(b)}}
+function act(id){if(!run)return;const m=M[id],txt=Array.isArray(m)?m[lvl]:m;
+if(id=='atender'||id=='refer')return finish(id);
+if(!done.has(id)){done.add(id);if(V[lvl][id])rev[id]=V[lvl][id];if(!INFO.includes(id)&&!L[lvl].req.includes(id)){pen+=25;msg(txt+' — No indicado para este caso (−25).',1)}else msg(txt)}else msg('Ya realizado. '+txt);
+acts();ui()}
+function msg(t,w){$('msg').textContent=t;$('msg').style.color=w?'var(--wr)':'var(--tx)'}
+function calc(f){const c=L[lvl];if(!run&&!f)return{tot:0};const ok=f==c.dec,n=k=>done.has(k)?1:0;
+const dg=ok?Math.round(300*c.as.filter(n).length/c.as.length):0;
+const oms=Math.max(0,Math.round(300*c.req.filter(n).length/c.req.length)-pen);
+const dc=ok?(tNow<=c.t?200:tNow<=c.t*2?100:50):0;
+const hu=lvl==0?n('emo')*100+n('skin')*100:n('emo')*200;
+return{dg,oms,dc,hu,tot:f?dg+oms+dc+hu:(c.req.filter(n).length*50-pen),ok}}
+function start(l){lvl=l;done=new Set();rev={};pen=0;tNow=0;t0=performance.now();run=true;px=0;pz=3.5;yaw=0;pat.userData.sk.forEach(m=>m.color.setHex([0xe2b48f,0xe9cdb6,0xe39a8c][l]));$('ov').classList.add('hide');$('obj').textContent=L[l].obj;msg('Acércate a la gestante, al monitor, a la enfermera o al médico (esferas amarillas).');acts();ui()}
+function finish(f){const c=L[lvl],r=calc(f);run=false;const gain=Math.round(r.tot/10);coins+=gain;best[lvl]=Math.max(best[lvl],r.tot);acts();
+$('oc').innerHTML=`<h2>${r.ok?'✅ Decisión correcta':'⚠️ Decisión incorrecta'}</h2><p>${c.edu}</p><table><tr><td>Diagnóstico correcto y a tiempo</td><td>+${r.dg}</td></tr><tr><td>Apego a la guía OMS${pen?' (penalización −'+pen+')':''}</td><td>+${r.oms}</td></tr><tr><td>Decisión oportuna (atención/referencia)</td><td>+${r.dc}</td></tr><tr><td>Trato humanizado</td><td>+${r.hu}</td></tr><tr><td><b>Total</b></td><td>${r.tot} / 1000</td></tr><tr><td>Monedas ganadas</td><td>+${gain}</td></tr></table>
+<p><b>Tienda de uniformes</b> (100 monedas): ${shop()}</p><div class="row">${lvl<2?'<button onclick="start(lvl+1)">Siguiente nivel</button>':''}<button class="sec" onclick="start(lvl)">Reintentar</button><button class="sec" onclick="menu()">Menú</button></div>`;$('ov').classList.remove('hide');ui()}
+function shop(){return COL.map((c,i)=>`<button class="sw ${col==i?'on':''}" style="background:#${c.toString(16).padStart(6,'0')}" title="${owned.has(i)?'Usar':'Comprar'}" onclick="buy(${i})"></button>`).join(' ')+` <small>Tienes ${coins} monedas</small>`}
+function buy(i){if(!owned.has(i)){if(coins<100)return;coins-=100;owned.add(i)}col=i;you.userData.cl.forEach(m=>m.color.setHex(COL[i]));const p=$('oc').querySelector('p:last-of-type');if(p&&!run&&$('oc').querySelector('.sw')){const ps=$('oc').querySelectorAll('p');ps[ps.length-1].innerHTML='<b>Tienda de uniformes</b> (100 monedas): '+shop()}ui()}
+function menu(){$('oc').innerHTML=`<h1>🩺 Obstetra Sim: Misión Materna</h1><p>Simulación educativa de atención del parto según lineamientos de la OMS. Evalúa, aplica el protocolo y decide: <b>atender</b> como obstetra o <b>referir</b> al médico.</p><p><b>Controles:</b> WASD/flechas para moverte, arrastrar para girar la cámara, teclas 1–9 o toque para las acciones. En celular usa el joystick.</p><p><b>Alerta OMS:</b> PA ≥160/110, FCF &lt;110 o &gt;160, meconio espeso, distocia, hemorragia severa o presentación anómala = referir.</p><div class="row">${L.map((l,i)=>`<button onclick="start(${i})">Nivel ${i+1}: ${l.n}${best[i]?' ('+best[i]+')':''}</button>`).join('')}</div><p><b>Uniforme:</b> ${shop()}</p><div class="row"><button class="sec" onclick="help()">❓ Cómo jugar</button></div>`;$('ov').classList.remove('hide');ui()}
+menu();
+function help(){$('oc').innerHTML=`<h1>🩺 Cómo jugar</h1><p>Eres la obstetra de la sala de partos. Evalúa a la gestante, aplica el protocolo OMS y decide si <b>atiendes tú el parto</b> o <b>refieres al médico</b>.</p>
+<h3>💻 En computadora (PC / laptop)</h3><ul><li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> o las <kbd>flechas</kbd>: caminar.</li><li><b>Arrastrar con el ratón</b>: girar la cámara.</li><li>Acércate a una esfera amarilla y haz <b>clic</b> en un botón de acción, o pulsa <kbd>1</kbd> a <kbd>9</kbd> para elegir la acción de la lista.</li></ul>
+<h3>📱 En celular o tablet</h3><ul><li><b>Joystick</b> (abajo a la izquierda): caminar.</li><li><b>Deslizar el dedo</b> sobre la pantalla: girar la cámara.</li><li>Toca los <b>botones de la derecha</b> para actuar. Se recomienda usar el celular en horizontal.</li></ul>
+<h3>🎯 Pasos de cada caso</h3><ul><li><b>Gestante:</b> FCF, presión arterial, dilatación, acompañamiento, posición, oxígeno, piel con piel y atender el parto.</li><li><b>Monitor:</b> partograma OMS.</li><li><b>Enfermera:</b> vía, oxitocina (MAMPA) y sulfato de magnesio.</li><li><b>Médico:</b> Código Rojo/Azul y referir.</li></ul>
+<h3>⚠️ Cuándo referir (OMS)</h3><p>PA ≥160/110, FCF &lt;110 o &gt;160, meconio espeso, distocia, hemorragia severa o presentación anómala.</p>
+<h3>⭐ Puntuación</h3><p>Diagnóstico 300, guía OMS 300, decisión oportuna 200 y trato humanizado 200. Las acciones no indicadas restan 25. Ganas monedas para comprar uniformes.</p>
+<div class="row"><button onclick="menu()">Entendido, elegir nivel</button></div>`;$('ov').classList.remove('hide')}
+help();let last=performance.now();
+function loop(now){requestAnimationFrame(loop);const dt=Math.min(.05,(now-last)/1e3);last=now;
+if(run){tNow=(now-t0)/1e3;let kx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),ky=(keys.w||keys.arrowup?1:0)-(keys.s||keys.arrowdown?1:0);kx+=ix;ky+=iy;const l=Math.hypot(kx,ky);
+if(l>.05){const k=Math.min(1,l)/l,sp=3.6*dt;const mx=(Math.cos(yaw)*kx-Math.sin(yaw)*ky)*k*sp,mz=(-Math.sin(yaw)*kx-Math.cos(yaw)*ky)*k*sp;px+=mx;pz+=mz;you.rotation.y=Math.atan2(mx,mz)}
+px=Math.max(-6.4,Math.min(6.4,px));pz=Math.max(-5.4,Math.min(5.6,pz));
+if(Math.abs(px)<1.1&&pz>-3.8&&pz<-.9){if(Math.abs(px)>(pz+2.35>0?0:0)&&Math.min(1.1-Math.abs(px),Math.abs(pz+3.8),Math.abs(pz+.9))==1.1-Math.abs(px))px=px<0?-1.1:1.1;else pz=pz<-2.35?-3.8:-.9}
+let nt=null,bd=2.8;for(const k in T){const d=Math.hypot(px-T[k].x,pz-T[k].z);if(d<bd){bd=d;nt=k}}
+if(nt!=tgt){tgt=nt;acts();if(nt)$('obj').textContent='Cerca de: '+TN[nt]}if(!nt&&$('obj').textContent.startsWith('Cerca'))$('obj').textContent=L[lvl].obj;ui()}
+you.position.set(px,0,pz);{const f=run&&lvl>0?520:1100,ct=Math.pow(Math.max(0,Math.sin(now/4500)),3),b=1+Math.sin(now/f)*.035+ct*.1;belly.scale.set(b,1.1*b,.9*b);nurse.rotation.z=Math.sin(now/900)*.02;doc.rotation.z=Math.sin(now/1100)*.02}for(const k in mk){mk[k].rotation.y=now/500;mk[k].position.y=2.3+Math.sin(now/300)*.08;mk[k].visible=tgt==k||!run?true:true}
+cam.position.set(px+Math.sin(yaw)*4.2,2.9,pz+Math.cos(yaw)*4.2);cam.lookAt(px,1.3,pz);R.render(S,cam)}
+requestAnimationFrame(loop);
+</script></body></html>
